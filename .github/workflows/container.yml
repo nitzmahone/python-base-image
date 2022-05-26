@@ -1,0 +1,47 @@
+name: Container Build
+on:
+  push:
+env:
+  SCRATCH_REPO_TAG_PREFIX: quay.io/ansible/scratchpad:python-base-temp
+  PUBLISH_REPO: quay.io/rolpdog/python-base
+  CONTAINMINT_REF: https://github.com/ansible/containmint/archive/refs/tags/v0.1.0.tar.gz
+
+jobs:
+  arch_build:
+    name: build arch container ${{ matrix.arch }}
+    environment: test
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        base_image: ['quay.io/centos/centos:stream8']
+        arch: [x86_64, aarch64]
+    steps:
+    - uses: actions/checkout@v2
+    - name: install containmint
+      env:
+        ANSIBLE_TEST_TOKEN: ${{ secrets.ANSIBLE_TEST_TOKEN }}
+      run: |
+        cat <<< $ANSIBLE_TEST_TOKEN > ~/.ansible-core-ci.key
+        python -m pip install $CONTAINMINT_REF
+    - name: build/push container
+      env:
+        CONTAINMINT_USERNAME: ${{ secrets.SCRATCH_USERNAME }}
+        CONTAINMINT_PASSWORD: ${{ secrets.SCRATCH_PASSWORD }}
+      run: |
+        # FIXME: clean up scratch tag prefix handling
+        containmint build --push --tag $SCRATCH_REPO_TAG_PREFIX-${{matrix.arch}} --arch ${{ matrix.arch }}
+
+
+  merge:
+    name: merge and publish multi-arch manifest
+    environment: test
+    runs-on: ubuntu-22.04
+    needs: arch_build
+    steps:
+    - env:
+        CONTAINMINT_USERNAME: ${{ secrets.PUBLISH_USERNAME }}
+        CONTAINMINT_PASSWORD: ${{ secrets.PUBLISH_PASSWORD }}
+      run: |
+        python -m pip install $CONTAINMINT_REF
+        # FIXME: dynamic source tag values
+        containmint merge --push --tag $PUBLISH_REPO:latest $SCRATCH_REPO_TAG_PREFIX-x86_64 $SCRATCH_REPO_TAG_PREFIX-aarch64
