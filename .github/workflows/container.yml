@@ -1,15 +1,30 @@
 name: Container Build
 on:
   push:
+    branches:
+    - main
+    - multi_arch
+    tags:
+    - '*'
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: Target environment
+        required: true
+        default: test
+        type: choice
+        options:
+        - test
+        - prod
 env:
   SCRATCH_REPO_TAG_PREFIX: quay.io/ansible/scratchpad:python-base-temp
   PUBLISH_REPO: quay.io/rolpdog/python-base
-  CONTAINMINT_REF: https://github.com/ansible/containmint/archive/refs/tags/v0.1.0.tar.gz
+  CONTAINMINT_REF: containmint==0.2.0
 
 jobs:
   arch_build:
     name: build arch container ${{ matrix.arch }}
-    environment: test
+    environment: ${{ inputs.target_env || 'test' }}
     runs-on: ubuntu-22.04
     strategy:
       matrix:
@@ -28,13 +43,13 @@ jobs:
         CONTAINMINT_USERNAME: ${{ secrets.SCRATCH_USERNAME }}
         CONTAINMINT_PASSWORD: ${{ secrets.SCRATCH_PASSWORD }}
       run: |
-        # FIXME: clean up scratch tag prefix handling
+        # FIXME: dynamic scratch tag prefix handling
         containmint build --push --tag $SCRATCH_REPO_TAG_PREFIX-${{matrix.arch}} --arch ${{ matrix.arch }}
 
 
   merge:
     name: merge and publish multi-arch manifest
-    environment: test
+    environment: ${{ inputs.target_env || 'test' }}
     runs-on: ubuntu-22.04
     needs: arch_build
     steps:
@@ -43,5 +58,5 @@ jobs:
         CONTAINMINT_PASSWORD: ${{ secrets.PUBLISH_PASSWORD }}
       run: |
         python -m pip install $CONTAINMINT_REF
-        # FIXME: dynamic source tag values
-        containmint merge --push --tag $PUBLISH_REPO:latest $SCRATCH_REPO_TAG_PREFIX-x86_64 $SCRATCH_REPO_TAG_PREFIX-aarch64
+        # FIXME: (multiple) dynamic tag values, sources/arches
+        containmint merge --push --tag $PUBLISH_REPO:latest --tag $PUBLISH_REPO:py3.8_stream8 $SCRATCH_REPO_TAG_PREFIX-x86_64 $SCRATCH_REPO_TAG_PREFIX-aarch64
